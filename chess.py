@@ -90,9 +90,10 @@ class Square:
     @property
     def rect(self):
         # rank 1 at the bottom, rank 8 at the top
-        return pg.Rect(self.file_index * SQUARE_SIZE,
-                       (len(self.board.ranks) - self.rank) * SQUARE_SIZE,
-                       SQUARE_SIZE, SQUARE_SIZE)
+        return pg.Rect(self.file_index * SQUARE_SIZE, # x position
+                       (len(self.board.ranks) - self.rank) * SQUARE_SIZE, # y position
+                       SQUARE_SIZE, # x size - width
+                       SQUARE_SIZE)  #y size - height
 
     def draw(self):
         pg.draw.rect(self.board.surface, self.color, self.rect, 0)
@@ -102,8 +103,8 @@ class Square:
 
 
 class Player:
-    def __init__(self, color_title, game):
-        self.color_title = color_title
+    def __init__(self, color, game):
+        self.color = color
         self.set_piece_color()
         self.turn = False
         self.game = game
@@ -111,20 +112,30 @@ class Player:
         self.pieces = [] # self.init_pieces()
 
     def init_pieces(self, board):
-        pass
-        if self.color_title == "white":
-            for file in (board.files):
-                position = [file, 2]
+        for file in (board.files):
+            for rank in board.ranks:
+                position = [file, rank]
                 square = board.square_at(position)
-                pawn = Pawn(square, self)
-                self.pieces.append(pawn)
-                # pawn.draw()
+                if (self.color == "white" and rank == 2) or (self.color == "black" and rank == 7):
+                        self.pieces.append(Pawn(square, self))
+                elif (self.color == "white" and rank == 1) or (self.color == "black" and rank == 8):
+                    if file == "a" or file == "h":
+                        self.pieces.append(Rook(square,self))
+                    elif file == "b" or file == "g":
+                        self.pieces.append(Knight(square,self))
+                    elif file == "c" or file == "f":
+                        self.pieces.append(Bishop(square,self))
+                    elif file == "d":
+                        self.pieces.append(Queen(square, self))
+                    elif file == "e":
+                        self.pieces.append(King(square, self))
+
                 
     def set_piece_color(self):
-        if self.color_title == "white":
-            self.piece_color = [WHITE[0] -20, WHITE[1] - 20,WHITE[2] -20 ]
-        if self.color_title == "black":
-            self.piece_color = [BLACK[0] -20, BLACK[1] - 20,BLACK[2] -20 ]
+        if self.color == "white":
+            self.piece_color = [WHITE[0] -40, WHITE[1] - 40,WHITE[2] -40 ]
+        if self.color == "black":
+            self.piece_color = [BLACK[0] -50, BLACK[1] - 50,BLACK[2] -50 ]
 
 
 class Piece:
@@ -138,6 +149,53 @@ class Piece:
 
 
 class Pawn(Piece):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def draw(self):
+        pg.draw.circle(self.board.surface, self.color, self.square.rect.center , SQUARE_SIZE // 6)
+
+
+class Rook(Piece):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def draw(self):
+        x_pos = self.square.rect[0] + SQUARE_SIZE // 4
+        y_pos = self.square.rect[1] + SQUARE_SIZE // 4
+        width = self.square.rect[2]
+        height = self.square.rect[3]
+
+        pg.draw.rect(self.board.surface, self.color, [x_pos, y_pos, width // 2, height // 2])
+
+class Bishop(Piece):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def draw(self):
+        x_pos = self.square.rect[0] + SQUARE_SIZE / 2.7
+        y_pos = self.square.rect[1] + SQUARE_SIZE // 8
+        width = self.square.rect[2]
+        height = self.square.rect[3] - SQUARE_SIZE // 4
+        pg.draw.rect(self.board.surface, self.color, [x_pos, y_pos, width // 4, height ])
+
+
+class Knight(Piece):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def draw(self):
+        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
+
+
+class Queen(Piece):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def draw(self):
+        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
+
+class King(Piece):
     def __init__(self, *args):
         super().__init__(*args)
 
