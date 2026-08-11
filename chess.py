@@ -87,9 +87,15 @@ class Square:
         self.board = board
         self.piece = None
 
+    @property
+    def rect(self):
+        # rank 1 at the bottom, rank 8 at the top
+        return pg.Rect(self.file_index * SQUARE_SIZE,
+                       (len(self.board.ranks) - self.rank) * SQUARE_SIZE,
+                       SQUARE_SIZE, SQUARE_SIZE)
+
     def draw(self):
-        rect = (self.file_index * SQUARE_SIZE, self.rank * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
-        pg.draw.rect(self.board.surface, self.color , rect, 0)
+        pg.draw.rect(self.board.surface, self.color, self.rect, 0)
 
         if self.piece:
             self.piece.draw()
@@ -136,12 +142,9 @@ class Pawn(Piece):
         super().__init__(*args)
 
     def draw(self):
-        center =  (self.square.file_index * SQUARE_SIZE + SQUARE_SIZE // 2,
-                   self.position[1] * SQUARE_SIZE + SQUARE_SIZE // 2)
-        radius = SQUARE_SIZE // 3
+        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
 
 
-        pg.draw.circle(self.board.surface, self.color, center, radius)
-
-game = Game()
-game.start()
+if __name__ == "__main__":
+    game = Game()
+    game.start()
