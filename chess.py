@@ -1,9 +1,21 @@
+from functools import lru_cache
+from pathlib import Path
+
 import pygame as pg
 
+PIECES_DIR = Path(__file__).parent / "pieces"
 SQUARE_SIZE = 80
 WHITE = [232,210,150]
 BLACK = [156,99,56]
 FPS = 5
+
+
+@lru_cache
+def piece_image(name):
+    """name is like "wp" or "bn"; matches the svg filenames in pieces/."""
+    image = pg.image.load(PIECES_DIR / f"{name}.svg").convert_alpha()
+    return pg.transform.smoothscale(image, (SQUARE_SIZE, SQUARE_SIZE))
+
 
 class Game:
     def __init__(self):
@@ -105,7 +117,6 @@ class Square:
 class Player:
     def __init__(self, color, game):
         self.color = color
-        self.set_piece_color()
         self.turn = False
         self.game = game
         self.board = None # Empty on Initialize, fill later
@@ -130,77 +141,43 @@ class Player:
                     elif file == "e":
                         self.pieces.append(King(square, self))
 
-                
-    def set_piece_color(self):
-        if self.color == "white":
-            self.piece_color = [WHITE[0] -40, WHITE[1] - 40,WHITE[2] -40 ]
-        if self.color == "black":
-            self.piece_color = [BLACK[0] -50, BLACK[1] - 50,BLACK[2] -50 ]
-
 
 class Piece:
+    letter = ""  # set by subclasses, second half of the svg filename
+
     def __init__(self, square, player):
         self.player = player
         self.board = player.board
-        self.color = player.piece_color
         self.position = square.position
         self.square = square
-        # self.square = self.board.square_at(position)
+
+    def draw(self):
+        image = piece_image(self.player.color[0] + self.letter)
+        self.board.surface.blit(image, self.square.rect)
 
 
 class Pawn(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-    def draw(self):
-        pg.draw.circle(self.board.surface, self.color, self.square.rect.center , SQUARE_SIZE // 6)
+    letter = "p"
 
 
 class Rook(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
+    letter = "r"
 
-    def draw(self):
-        x_pos = self.square.rect[0] + SQUARE_SIZE // 4
-        y_pos = self.square.rect[1] + SQUARE_SIZE // 4
-        width = self.square.rect[2]
-        height = self.square.rect[3]
-
-        pg.draw.rect(self.board.surface, self.color, [x_pos, y_pos, width // 2, height // 2])
 
 class Bishop(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-    def draw(self):
-        x_pos = self.square.rect[0] + SQUARE_SIZE / 2.7
-        y_pos = self.square.rect[1] + SQUARE_SIZE // 8
-        width = self.square.rect[2]
-        height = self.square.rect[3] - SQUARE_SIZE // 4
-        pg.draw.rect(self.board.surface, self.color, [x_pos, y_pos, width // 4, height ])
+    letter = "b"
 
 
 class Knight(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-    def draw(self):
-        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
+    letter = "n"
 
 
 class Queen(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
+    letter = "q"
 
-    def draw(self):
-        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
 
 class King(Piece):
-    def __init__(self, *args):
-        super().__init__(*args)
-
-    def draw(self):
-        pg.draw.circle(self.board.surface, self.color, self.square.rect.center, SQUARE_SIZE // 3)
+    letter = "k"
 
 
 if __name__ == "__main__":
