@@ -8,8 +8,8 @@ FPS = 5
 class Game:
     def __init__(self):
         self.playing = False
-        self.board = Board()
-        self.players = [Player("white", self.board), Player("black", self.board)]
+        self.players = [Player("white", self), Player("black", self)]
+        self.board = Board(self.players)
 
 
     def start(self):
@@ -27,7 +27,7 @@ class Game:
         pg.quit()
 
 class Board:
-    def __init__(self):
+    def __init__(self, players):
         self.files = ["a", "b", "c", "d", "e", "f", "g", "h"]
         self.file_indexes = range(1,9)
         self.ranks = range(1,9)
@@ -36,6 +36,8 @@ class Board:
         self.height = len(self.ranks) * SQUARE_SIZE
         self.width = len(self.files) * SQUARE_SIZE
         self.surface = pg.display.set_mode((self.width, self.height))
+        self.players = players
+        self.init_pieces()
         
 
 
@@ -50,6 +52,10 @@ class Board:
                 self.squares_list.append(square)
         return squares
 
+    def init_pieces(self):
+        for player in self.players:
+            player.board = self
+            player.init_pieces(self)
 
 
 
@@ -58,6 +64,10 @@ class Board:
         for square in self.squares_list:
             square.draw()
         
+        for player in self.players:
+            for piece in player.pieces:
+                piece.draw()
+
 
     def square_at(self, pos):
         # print(self.squares)
@@ -71,6 +81,7 @@ class Square:
     def __init__(self, file, file_index, rank, color, board):
         self.file = file
         self.file_index = file_index
+        self.position = [file, rank]
         self.rank = rank
         self.color = color
         self.board = board
@@ -80,30 +91,44 @@ class Square:
         rect = (self.file_index * SQUARE_SIZE, self.rank * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
         pg.draw.rect(self.board.surface, self.color , rect, 0)
 
+        if self.piece:
+            self.piece.draw()
+
 
 class Player:
-    def __init__(self, color, board):
-        self.color = color
+    def __init__(self, color_title, game):
+        self.color_title = color_title
+        self.set_piece_color()
         self.turn = False
-        self.board = board
-        self.pieces = self.init_pieces(board)
+        self.game = game
+        self.board = None # Empty on Initialize, fill later
+        self.pieces = [] # self.init_pieces()
 
     def init_pieces(self, board):
         pass
-        if self.color == "white":
+        if self.color_title == "white":
             for file in (board.files):
-                pawn = Pawn([file, 2], self)
-                pawn.draw()
+                position = [file, 2]
+                square = board.square_at(position)
+                pawn = Pawn(square, self)
+                self.pieces.append(pawn)
+                # pawn.draw()
                 
+    def set_piece_color(self):
+        if self.color_title == "white":
+            self.piece_color = [WHITE[0] -20, WHITE[1] - 20,WHITE[2] -20 ]
+        if self.color_title == "black":
+            self.piece_color = [BLACK[0] -20, BLACK[1] - 20,BLACK[2] -20 ]
 
 
 class Piece:
-    def __init__(self, position, player):
+    def __init__(self, square, player):
         self.player = player
         self.board = player.board
-        self.color = player.color
-        self.position = position
-        self.square = self.board.square_at(position)
+        self.color = player.piece_color
+        self.position = square.position
+        self.square = square
+        # self.square = self.board.square_at(position)
 
 
 class Pawn(Piece):
@@ -113,10 +138,10 @@ class Pawn(Piece):
     def draw(self):
         center =  (self.square.file_index * SQUARE_SIZE + SQUARE_SIZE // 2,
                    self.position[1] * SQUARE_SIZE + SQUARE_SIZE // 2)
-        radius = SQUARE_SIZE * 4
+        radius = SQUARE_SIZE // 3
 
 
-        pg.draw.circle(self.board.surface, [255,0,0], center, radius)
+        pg.draw.circle(self.board.surface, self.color, center, radius)
 
 game = Game()
 game.start()
