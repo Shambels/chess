@@ -2,6 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import pygame as pg
+from abc import ABC
 
 PIECES_DIR = Path(__file__).parent / "pieces"
 SQUARE_SIZE = 100
@@ -49,41 +50,24 @@ class Game:
 
     def _handle_player_turn(self, player, event):
         if event.type == pg.MOUSEBUTTONDOWN:
+            print(player.color)
             for square in self.board.squares_list:
                 square.playable = False
+
             square = self.board.square_at_click_position(event.pos)
             piece = square.piece
+            
+            if player.touched_piece:
+                if square in player.touched_piece.playable_squares:
+                    player.touched_piece.move_to(square)
+                    player.touched_piece.has_moved = True
+                    player.touched_piece = None
+                    self.white_to_play = not self.white_to_play
             if piece in player.pieces:
-                self.select_piece(piece)
-                playable_squares = piece.playable_squares()
-                if playable_squares:
-                    for square in playable_squares:
+                player.select_piece(piece)
+                if piece.calculate_playable_squares():
+                    for square in piece.playable_squares:
                         square.playable = True
-
-
-    # listen for click
-    # get square where click position is
-    # get piece on that square
-    # if piece is player's
-        # touched_piece = piece
-        # highlight square
-        # get playable_squares (v1 ignore ennemy obstacles, v2 incorporate)
-        # draw a dot for square in playable_squares
-        # listen for click again
-        # get square where click position is
-        # if square in playable_squares:
-            # move that piece to that square
-            # remove piece if there was one on that square
-        # else:
-            # cancel move / touched_piece = None
-
-    def select_piece(self, piece):
-        for square in self.board.squares_list:
-            if square == piece.square:
-                square.highlighted = True
-            else:
-                square.highlighted = False
-
 
 class Board:
     def __init__(self, players):
@@ -97,6 +81,7 @@ class Board:
         self.surface = pg.display.set_mode((self.width, self.height))
         self.players = players
         self.init_pieces()
+        self.init_pieces_playable_squares()
         
 
 
@@ -116,6 +101,10 @@ class Board:
             player.board = self
             player.init_pieces(self)
 
+    def init_pieces_playable_squares(self):
+        for player in self.players:
+            for piece in player.pieces:
+                piece.playable_squares = piece.calculate_playable_squares()
 
 
     def draw(self):
@@ -125,7 +114,6 @@ class Board:
         for player in self.players:
             for piece in player.pieces:
                 piece.draw()
-
 
     def square_at(self, pos):
         file = pos[0]
@@ -144,8 +132,8 @@ class Board:
 class Square:
     def __init__(self, file, rank, color, board):
         self.file = file
-        self.position = [file, rank]
         self.rank = rank
+        self.position = [file, rank]
         self.color = color
         self.board = board
         self.piece = None
@@ -173,7 +161,6 @@ class Square:
              return HIGHLIGHT_COLOR
         return self.color
 
-
 class Player:
     def __init__(self, color, game):
         self.color = color
@@ -181,6 +168,8 @@ class Player:
         self.game = game
         self.board = None # Empty on Initialize, fill later
         self.pieces = [] # self.init_pieces()
+        self.touched_piece = None
+        self.moves = []
 
     def init_pieces(self, board):
         for file in (board.files):
@@ -210,21 +199,101 @@ class Player:
                     self.pieces.append(piece)
                     square.piece = piece
 
+    def select_piece(self, piece):
+        for square in self.board.squares_list:
+            if square == piece.square:
+                square.highlighted = True
+            else:
+                square.highlighted = False
+        self.touched_piece = piece
+
+    def opponent(self):
+        return next(player for player in self.board.players if player != self)
 
 
+class Move:
+    def __init__(self, player, piece, from_square, to_square, capture):
+        self.player = player
+        self.piece = piece
+        self.from_square = from_square
+        self.to_square = to_square
+        self.capture = capture
+        self.order = self.increment_order
+
+    @staticmethod
+    def get_all_moves(player=None):
+        if player:
+            return player.moves
+        else:
+            # return all_moves 
+            pass
+
+    def increment_order(self):
+        self.order = len(Move.get_all_moves)
+
+    
+    def cancel(self):
+        #restore capture / square_to
+        self.piece.square = self.from_square
+        if self.capture:
+            self.player.opponent().pieces.append(self.capture)
+            self.to_square.piece = self.capture
+            self.capture.square = self.to_square
+
+        # restore square from
+        self.from_square.piece = self.piece
+        self.piece.square = self.from_square
+
+        #restore history
+        self.player.moves.remove(self)
+
+    
 class Piece:
     letter = ""  # set by subclasses, second half of the svg filename
 
     def __init__(self, square, player, has_moved=False):
         self.player = player
         self.board = player.board
-        self.position = square.position
         self.has_moved = has_moved
         self.square = square
+        self.playable_squares = []
+
+    @property
+    def position(self):
+        return self.square.position
+
+    def calculate_playable_squares(self):
+        pass
 
     def draw(self):
         image = piece_image(self.player.color[0] + self.letter)
         self.board.surface.blit(image, self.square.rect)
+
+    def move_to(self, square):
+
+        #capture opponent piece
+        capture = square.piece
+        if capture:
+            capture.player.pieces.remove(capture)
+            # del capture
+
+        # clear square from
+        from_square = self.square
+        from_square.piece = None
+
+        # update new square
+        self.square = square
+        # self.position = square.position  # no_longer_needed because reflects square.position
+        square.piece = self
+
+        # update state
+        # self.calculate_playable_squares()
+        # register_move
+        move = Move(self.player, self, from_square, square, capture)
+        self.player.moves.append(move)
+ 
+        return move
+
 
     def restrict_squares(self, squares, square):
         # TODO Remove squares that would put king in danger if moving there
@@ -270,29 +339,28 @@ class Piece:
             elif diag == "anti":
                 return self.board.square_at([file - (i* direction), rank + (i*direction)])
     
-    
-
 class Pawn(Piece):
     letter = "p"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
         if self.player.color == "white":
             direction = 1
         elif self.player.color == "black":
             direction = -1  
 
         squares = []
-
         # 1 square forward
         square_forward = self.board.square_at([self.position[0], self.position[1] + (1*direction)])
-        if not square_forward.piece:
+        
+        if square_forward and not square_forward.piece:
             squares.append(self.board.square_at([self.position[0], self.position[1] + (1*direction)]))
 
             # 2 squares forward
             if self.has_moved == False:
                 square_2_forward = self.board.square_at([self.position[0], self.position[1] + (2*direction)])
-                if not square_2_forward.piece:
+                if square_2_forward and not square_2_forward.piece:
                     squares.append(square_2_forward)
+       
 
         # captures
         up_left_square = self.board.square_at([self.position[0] - 1, self.position[1] + (1*direction)])
@@ -302,28 +370,30 @@ class Pawn(Piece):
             squares.append(up_right_square)
         if up_left_square and up_left_square.piece and up_left_square.piece.player != self.player: # TODO add en-passant rule
             squares.append(up_left_square)
-        return squares
 
+        self.playable_squares = squares
+        return squares
 
 class Rook(Piece):
     letter = "r"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
         file = self.position[0]
         rank = self.position[1]
+
         squares_left = self.squares_in_range(file, 0, - 1, "file" )
         squares_right = self.squares_in_range(file, len(self.board.files) - self.position[0], 1, "file" )
         squares_up = self.squares_in_range(rank, len(self.board.ranks) - self.position[1], 1, "rank")
         squares_down = self.squares_in_range(rank, 0, -1, "rank")
 
-        return squares_left + squares_right + squares_up + squares_down
-
-
+        squares = squares_left + squares_right + squares_up + squares_down
+        self.playable_squares = squares
+        return squares
 
 class Bishop(Piece):
     letter = "b"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
         file = self.position[0]
         rank = self.position[1]
     
@@ -334,14 +404,13 @@ class Bishop(Piece):
 
         squares = squares_down_left  + squares_up_right + squares_up_left + squares_down_right
 
-        
+        self.playable_squares = squares
         return squares
     
-
 class Knight(Piece):
     letter = "n"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
         file = self.position[0]
         rank = self.position[1]
         pass
@@ -358,14 +427,14 @@ class Knight(Piece):
             self.board.square_at([file - 1, rank - 2]),
             self.board.square_at([file + 1, rank - 2]),
         ]
-
-        return [x for x in squares if x is not None and not (x.piece and x.piece.player == self.player)]
-
+        squares = [x for x in squares if x is not None and not (x.piece and x.piece.player == self.player)]
+        self.playable_squares = squares
+        return squares
 
 class Queen(Piece):
     letter = "q"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
         file = self.position[0]
         rank = self.position[1]
         squares_left = self.squares_in_range(file, 0, - 1, "file" )
@@ -379,54 +448,76 @@ class Queen(Piece):
         squares_down_right = self.squares_in_range_diagonal(file, rank, -1, "anti")
 
         squares = squares_left + squares_right + squares_up + squares_down + squares_down_left + squares_up_right + squares_up_left + squares_down_right
+        self.playable_squares = squares
         return squares
 
 class King(Piece):
     letter = "k"
 
-    def playable_squares(self):
+    def calculate_playable_squares(self):
+        print("calculate king safe squares")
         file = self.position[0]
         rank = self.position[1] 
 
-        candidate_squares = []
+        candidate_square_positions = [
+            [file - 1, rank - 1],
+            [file - 1, rank],
+            [file - 1, rank + 1],
+            [file, rank - 1],
+            [file, rank + 1],
+            [file + 1, rank - 1],
+            [file + 1, rank],
+            [file + 1, rank + 1],
+        ]
 
-        candidate_squares.append(self.board.square_at([file - 1, rank - 1]))
-        candidate_squares.append(self.board.square_at([file - 1, rank]))
-        candidate_squares.append(self.board.square_at([file - 1, rank + 1]))
+        safe_squares = []
 
-        candidate_squares.append(self.board.square_at([file, rank - 1]))
-        candidate_squares.append(self.board.square_at([file, rank + 1]))
+        for position in candidate_square_positions:
+            square = self.check_square(position)
+            if square:
+                safe_squares.append(square)
 
-        candidate_squares.append(self.board.square_at([file + 1, rank - 1]))
-        candidate_squares.append(self.board.square_at([file + 1, rank]))
-        candidate_squares.append(self.board.square_at([file + 1, rank + 1]))
+        if len(safe_squares) == 0: 
+            return safe_squares
 
-        # danger_squares = []
-        # for player in self.board.players:
-        #     if player == self.player:
-        #         continue
-        #     opponent = player
-        #     for piece in opponent.pieces:
-        #         danger_squares.extend(piece.playable_squares())
+        # danger_squares = {}
 
-        # print(danger_squares)
-        # danger_squares = list(set(danger_squares))
-        # print (danger_squares)
+        # for file in self.board.squares:
+        #     danger_squares[file] = {}
+        
+        print ([square.position for square in safe_squares if square])
 
-        squares = []
-        for square in candidate_squares:
-            if square is None:
-                continue
-            if square.piece and square.piece.player == self.player:
-                continue
-            # if square in danger_squares:
-            #     continue
+        for square in safe_squares:
+            #move the king to that square
+            # check if still in danger (opponent.pieces.each(&:playable_square))
+            # if yes, remove from squares safe_squares
+            move = self.move_to(square)
+            for player in self.board.players:
+                if player == self.player:
+                    continue
+                opponent = player
+                for piece in opponent.pieces:
+                    file = piece.position[0]
+                    rank = piece.position[1]
+                    # for playable_square in piece.playable_squares:
+                    if square in piece.playable_squares:
+                        safe_squares.remove(square)
+            move.cancel()
+                
 
-            squares.append(square)
-
-        return squares
+        self.playable_squares = safe_squares
+        return safe_squares
                     
-
+    def check_square(self, position):
+        square = self.board.square_at(position)
+        if not square:
+            return None
+        if square.piece and square.piece.player == self.player:
+            return None
+        if square.piece and square.piece.player != self.player:
+            return square
+        else:
+            return square
 
 
 
