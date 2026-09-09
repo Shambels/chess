@@ -11,6 +11,21 @@ BLACK = [156, 99, 56]
 HIGHLIGHT_COLOR = [WHITE[0] - BLACK[0], WHITE[1] - BLACK[1], WHITE[2] - BLACK[2]]
 FPS = 5
 
+# Attack geometry, shared by the pieces below.
+ORTHOGONAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
+DIAGONAL = ((1, 1), (1, -1), (-1, 1), (-1, -1))
+STAR = ORTHOGONAL + DIAGONAL
+KNIGHT_STEPS = (
+    (1, 2),
+    (2, 1),
+    (2, -1),
+    (1, -2),
+    (-1, -2),
+    (-2, -1),
+    (-2, 1),
+    (-1, 2),
+)
+
 
 @lru_cache
 def piece_image(name):
@@ -119,6 +134,13 @@ class Board:
         for player in self.players:
             for piece in player.pieces:
                 piece.draw()
+
+    def attacked_squares(self, player, transparent=None):
+        """Every square controlled by `player`, in one pass over its pieces."""
+        squares = set()
+        for piece in player.pieces:
+            squares.update(piece.attacked_squares(transparent))
+        return squares
 
     def square_at(self, pos):
         file = pos[0]
@@ -264,6 +286,8 @@ class Move:
 
 class Piece:
     letter = ""  # set by subclasses, second half of the svg filename
+    attack_steps = ()  # single-step attackers (king, knight)
+    attack_directions = ()  # sliding attackers (rook, bishop, queen)
 
     def __init__(self, square, player, has_moved=False):
         self.player = player
@@ -278,6 +302,40 @@ class Piece:
 
     def calculate_playable_squares(self):
         pass
+
+    def attacked_squares(self, transparent=None):
+        """Squares this piece controls, friendly-occupied ones included.
+
+        Pure geometry: it never asks whether a move would be legal, so it can
+        never recurse back into King.calculate_playable_squares(). Friendly
+        squares count because a piece standing on one is *defended*, and an
+        enemy king may not capture it.
+
+        `transparent` names a square that sliding pieces see through. The king
+        passes its own square so a ray is not truncated by the very king whose
+        safety is being evaluated -- otherwise it could illegally step back
+        along the checking line.
+        """
+        file, rank = self.position
+        squares = []
+
+        for step_file, step_rank in self.attack_steps:
+            square = self.board.square_at([file + step_file, rank + step_rank])
+            if square:
+                squares.append(square)
+
+        for step_file, step_rank in self.attack_directions:
+            for i in range(1, 8):
+                square = self.board.square_at(
+                    [file + (i * step_file), rank + (i * step_rank)]
+                )
+                if not square:
+                    break
+                squares.append(square)
+                if square.piece and square is not transparent:
+                    break  # blocked: the blocker is attacked, nothing beyond it
+
+        return squares
 
     def draw(self):
         image = piece_image(self.player.color[0] + self.letter)
@@ -305,7 +363,7 @@ class Piece:
         # register_move
         move = Move(self.player, self, from_square, square, capture)
         self.player.moves.append(move)
-
+        self.calculate_playable_squares()
         return move
 
     def restrict_squares(self, squares, square):
@@ -359,6 +417,16 @@ class Piece:
 
 class Pawn(Piece):
     letter = "p"
+
+    def attacked_squares(self, transparent=None):
+        """A pawn controls its two forward diagonals, occupied or not."""
+        direction = 1 if self.player.color == "white" else -1
+        file, rank = self.position
+        squares = [
+            self.board.square_at([file - 1, rank + direction]),
+            self.board.square_at([file + 1, rank + direction]),
+        ]
+        return [square for square in squares if square]
 
     def calculate_playable_squares(self):
         if self.player.color == "white":
@@ -414,6 +482,7 @@ class Pawn(Piece):
 
 class Rook(Piece):
     letter = "r"
+    attack_directions = ORTHOGONAL
 
     def calculate_playable_squares(self):
         file = self.position[0]
@@ -435,6 +504,7 @@ class Rook(Piece):
 
 class Bishop(Piece):
     letter = "b"
+    attack_directions = DIAGONAL
 
     def calculate_playable_squares(self):
         file = self.position[0]
@@ -459,6 +529,7 @@ class Bishop(Piece):
 
 class Knight(Piece):
     letter = "n"
+    attack_steps = KNIGHT_STEPS
 
     def calculate_playable_squares(self):
         file = self.position[0]
@@ -485,6 +556,7 @@ class Knight(Piece):
 
 class Queen(Piece):
     letter = "q"
+    attack_directions = STAR
 
     def calculate_playable_squares(self):
         file = self.position[0]
@@ -523,12 +595,22 @@ class Queen(Piece):
 
 class King(Piece):
     letter = "k"
+    attack_steps = STAR
 
     def calculate_playable_squares(self):
-        print("calculate king safe squares")
-        file = self.position[0]
-        rank = self.position[1]
+        """Adjacent squares the king may legally occupy.
 
+        Legality is decided against the opponent's ATTACKS, not against the
+        opponent's legal moves. Attack generation stops at the enemy king (it
+        simply controls its 8 neighbours), so this can never recurse back into
+        the opponent king's playable squares -- and no move has to be made and
+        undone on the board to find out.
+        """
+        danger_squares = self.board.attacked_squares(
+            self.player.opponent(), transparent=self.square
+        )
+
+        file, rank = self.position
         candidate_square_positions = [
             [file - 1, rank - 1],
             [file - 1, rank],
@@ -541,52 +623,25 @@ class King(Piece):
         ]
 
         safe_squares = []
-
         for position in candidate_square_positions:
             square = self.check_square(position)
-            if square:
+            if square and square not in danger_squares:
                 safe_squares.append(square)
-
-        if len(safe_squares) == 0:
-            return safe_squares
-
-        # danger_squares = {}
-
-        # for file in self.board.squares:
-        #     danger_squares[file] = {}
-
-        print([square.position for square in safe_squares if square])
-
-        for square in safe_squares:
-            # move the king to that square
-            # check if still in danger (opponent.pieces.each(&:playable_square))
-            # if yes, remove from squares safe_squares
-            move = self.move_to(square)
-            for player in self.board.players:
-                if player == self.player:
-                    continue
-                opponent = player
-                for piece in opponent.pieces:
-                    file = piece.position[0]
-                    rank = piece.position[1]
-                    # for playable_square in piece.playable_squares:
-                    if square in piece.playable_squares:
-                        safe_squares.remove(square)
-            move.cancel()
 
         self.playable_squares = safe_squares
         return safe_squares
 
     def check_square(self, position):
+        """The square at `position` if the king could stand on it, else None.
+
+        Only occupancy is considered here; danger is filtered by the caller.
+        """
         square = self.board.square_at(position)
         if not square:
             return None
         if square.piece and square.piece.player == self.player:
             return None
-        if square.piece and square.piece.player != self.player:
-            return square
-        else:
-            return square
+        return square
 
 
 if __name__ == "__main__":
